@@ -1,8 +1,9 @@
-name: Build APK Forge
+name: ApkForge Android Build
 on:
-  workflow_dispatch:
   push:
     branches: [ main ]
+  workflow_dispatch:
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -11,13 +12,12 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
+          java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: 8.9
-      - name: Build debug APK
+      - name: Build APK
         run: gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: apk-forge
+          name: ApkForge-debug
           path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

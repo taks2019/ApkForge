@@ -1,14 +1,25 @@
-# APK Forge
+# APK Forge v2
 
-GitHub repókból épít APK-t: elindítja a GitHub Actions buildet, követi, letölti és telepíti az APK-t.
+GitHub-alapú Android APK builder.
 
-## Az app APK-jának elkészítése
-1. Tedd fel ezt a projektet egy GitHub repóba (main ág).
-2. Actions fül → "Build APK Forge" → Run workflow (vagy push esetén automatikusan indul).
-3. A lefutott run alján töltsd le az `apk-forge` artifactot, csomagold ki, telepítsd.
+## Fő funkciók
 
-## Használat
-1. Kulcs ikon: GitHub token megadása (repo + workflow jog).
-2. Repó hozzáadása (tulajdonos/repó).
-3. Ha a repóban nincs build workflow: három pont → Workflow létrehozása.
-4. APK építése → Telepítés.
+- GitHub token kezelése
+- meglévő GitHub repó hozzáadása
+- új GitHub repó létrehozása az alkalmazásból
+- automatikus kezdő README + APK Forge workflow
+- GitHub Actions APK build indítása
+- build állapot követése
+- GitHub Actions napló megnyitása
+- elkészült APK artifact letöltése
+- APK telepítése
+- projekt eltávolítása csak az ApkForge listájából
+- GitHub repó végleges törlése külön megerősítéssel
+
+## Token jogosultság
+
+Fine-grained PAT esetén az új repó létrehozásához és törléséhez GitHub szerint
+`Administration: Read and write` szükséges. A workflow/fájl kezeléshez
+`Contents: Read and write` és `Workflows: Read and write` szükséges.
+
+A token értékét ne oszd meg senkivel.
