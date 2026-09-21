@@ -20,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -60,10 +59,9 @@ private fun openUrl(ctx: Context, url: String) =
 @Composable
 fun App(vm: MainViewModel = viewModel()) {
     var showAdd by remember { mutableStateOf(false) }
-    var showCreate by remember { mutableStateOf(false) }
-    var showToken by remember { mutableStateOf(vm.token.isBlank()) }
-
+    var showLogin by remember { mutableStateOf(false) }
     val snack = remember { SnackbarHostState() }
+
     LaunchedEffect(vm.message) {
         vm.message?.let {
             snack.showSnackbar(it)
@@ -74,70 +72,76 @@ fun App(vm: MainViewModel = viewModel()) {
     Scaffold(
         topBar = {
             LargeTopAppBar(
-                title = {
-                    Column {
-                        Text("APK Forge", fontWeight = FontWeight.SemiBold)
-                        Text(
-                            "GitHub APK Builder",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
+                title = { Text("APK Forge", fontWeight = FontWeight.SemiBold) },
                 actions = {
-                    IconButton(onClick = { showToken = true }) {
-                        Icon(Icons.Default.Key, contentDescription = "GitHub token")
+                    if (vm.loggedInAs.isBlank()) {
+                        IconButton(onClick = { showLogin = true }) {
+                            Icon(Icons.Default.Login, contentDescription = "GitHub bejelentkezés")
+                        }
+                    } else {
+                        IconButton(onClick = { vm.logout() }) {
+                            Icon(Icons.Default.Logout, contentDescription = "GitHub kijelentkezés")
+                        }
                     }
-                },
+                }
             )
         },
         floatingActionButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SmallFloatingActionButton(onClick = { showAdd = true }) {
-                    Icon(Icons.Default.Link, contentDescription = "Meglévő repó")
-                }
+            if (vm.loggedInAs.isNotBlank()) {
                 ExtendedFloatingActionButton(
-                    onClick = { showCreate = true },
+                    onClick = { showAdd = true },
                     icon = { Icon(Icons.Default.Add, null) },
-                    text = { Text("Új repó") },
+                    text = { Text("Repó hozzáadása") },
                 )
             }
         },
         snackbarHost = { SnackbarHost(snack) },
     ) { pad ->
-        if (vm.projects.isEmpty()) {
+        if (vm.loggedInAs.isBlank()) {
             Box(
                 Modifier.padding(pad).fillMaxSize().padding(32.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Icon(
-                        Icons.Default.Build,
+                        Icons.Default.CloudQueue,
                         null,
                         Modifier.size(64.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
-                    Text("APK Forge", style = MaterialTheme.typography.headlineSmall)
+                    Text("GitHub csatlakoztatása", style = MaterialTheme.typography.headlineSmall)
                     Text(
-                        "GitHub repó → Actions → APK",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        "Hozz létre új repót, adj hozzá meglévőt, indítsd a GitHub Actions buildet, majd töltsd le és telepítsd az elkészült APK-t.",
+                        "Nem kell Personal Access Tokent bemásolnod. Jelentkezz be GitHubbal, majd az APK Forge a saját, lejáró munkamenetét használja.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { showAdd = true }) {
-                            Text("Meglévő repó")
-                        }
-                        Button(onClick = { showCreate = true }) {
-                            Text("Új repó")
-                        }
+                    Button(onClick = { showLogin = true }) {
+                        Icon(Icons.Default.Login, null)
+                        Spacer(Modifier.width(8.dp))
+                        Text("Bejelentkezés GitHubbal")
                     }
+                }
+            }
+        } else if (vm.projects.isEmpty()) {
+            Box(
+                Modifier.padding(pad).fillMaxSize().padding(32.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(Icons.Default.Construction, null, Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary)
+                    Text("GitHub: @${vm.loggedInAs}", style = MaterialTheme.typography.titleMedium)
+                    Text("Még nincs egy repód sem", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        "Add hozzá a GitHub repót, amiből APK-t szeretnél. A fordítást a GitHub végzi, az APK pedig ide érkezik.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         } else {
@@ -146,21 +150,6 @@ fun App(vm: MainViewModel = viewModel()) {
                 contentPadding = PaddingValues(16.dp, 8.dp, 16.dp, 96.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                item {
-                    ElevatedCard {
-                        Column(
-                            Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text("GitHub APK build folyamat", fontWeight = FontWeight.Bold)
-                            Text(
-                                "Forrás → GitHub → Actions → Gradle → APK artifact → ApkForge",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
                 items(vm.projects, key = { it.id }) { p ->
                     ProjectCard(p, vm.states[p.id] ?: BuildUi(), vm)
                 }
@@ -169,31 +158,20 @@ fun App(vm: MainViewModel = viewModel()) {
     }
 
     if (showAdd) {
-        AddDialog(
-            onDismiss = { showAdd = false }
-        ) { repo, wf ->
+        AddDialog(onDismiss = { showAdd = false }) { repo, wf ->
             vm.addProject(repo, wf)
             showAdd = false
         }
     }
 
-    if (showCreate) {
-        CreateRepositoryDialog(
-            onDismiss = { showCreate = false }
-        ) { name, description, private ->
-            vm.createRepository(name, description, private)
-            showCreate = false
-        }
-    }
-
-    if (showToken) {
-        TokenDialog(
-            vm.token,
-            onDismiss = { showToken = false }
-        ) {
-            vm.saveToken(it)
-            showToken = false
-        }
+    if (showLogin) {
+        LoginDialog(
+            onDismiss = { showLogin = false },
+            onLogin = {
+                showLogin = false
+                vm.login()
+            }
+        )
     }
 }
 
@@ -201,84 +179,43 @@ fun App(vm: MainViewModel = viewModel()) {
 fun ProjectCard(p: Project, ui: BuildUi, vm: MainViewModel) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf(false) }
 
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
         )
     ) {
-        Column(
-            Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(
-                        p.repo,
-                        style = MaterialTheme.typography.titleLarge,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    Text(p.repo, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(
                         "${p.owner} · ${p.branch} · ${p.workflow}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-
                 Box {
                     IconButton(onClick = { menu = true }) {
-                        Icon(Icons.Default.MoreVert, "Projekt műveletek")
+                        Icon(Icons.Default.MoreVert, "Több")
                     }
-                    DropdownMenu(
-                        expanded = menu,
-                        onDismissRequest = { menu = false }
-                    ) {
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(
-                            text = { Text("Workflow létrehozása / frissítése") },
+                            text = { Text("Workflow létrehozása") },
                             leadingIcon = { Icon(Icons.Default.PostAdd, null) },
-                            onClick = {
-                                menu = false
-                                vm.createWorkflow(p)
-                            }
+                            onClick = { menu = false; vm.createWorkflow(p) },
                         )
                         DropdownMenuItem(
                             text = { Text("Megnyitás GitHubon") },
                             leadingIcon = { Icon(Icons.Default.OpenInBrowser, null) },
-                            onClick = {
-                                menu = false
-                                openUrl(ctx, "https://github.com/${p.id}")
-                            }
+                            onClick = { menu = false; openUrl(ctx, "https://github.com/${p.id}") },
                         )
                         DropdownMenuItem(
-                            text = { Text("Eltávolítás csak az ApkForge-ból") },
-                            leadingIcon = { Icon(Icons.Default.RemoveCircleOutline, null) },
-                            onClick = {
-                                menu = false
-                                vm.removeProject(p)
-                            }
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    "⚠ GitHub repó végleges törlése",
-                                    color = MaterialTheme.colorScheme.error
-                                )
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    Icons.Default.DeleteForever,
-                                    null,
-                                    tint = MaterialTheme.colorScheme.error
-                                )
-                            },
-                            onClick = {
-                                menu = false
-                                confirmDelete = true
-                            }
+                            text = { Text("Eltávolítás a listáról") },
+                            leadingIcon = { Icon(Icons.Default.Delete, null) },
+                            onClick = { menu = false; vm.removeProject(p) },
                         )
                     }
                 }
@@ -312,52 +249,10 @@ fun ProjectCard(p: Project, ui: BuildUi, vm: MainViewModel) {
                 }
 
                 if (ui.runUrl != null) {
-                    TextButton(onClick = { openUrl(ctx, ui.runUrl) }) {
-                        Icon(Icons.Default.Terminal, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text("Build napló")
-                    }
+                    TextButton(onClick = { openUrl(ctx, ui.runUrl) }) { Text("Napló") }
                 }
             }
         }
-    }
-
-    if (confirmDelete) {
-        AlertDialog(
-            onDismissRequest = { confirmDelete = false },
-            icon = {
-                Icon(
-                    Icons.Default.DeleteForever,
-                    null,
-                    tint = MaterialTheme.colorScheme.error
-                )
-            },
-            title = { Text("GitHub repó végleges törlése") },
-            text = {
-                Text(
-                    "A(z) ${p.id} repó teljes GitHub-tartalma véglegesen törlődik. " +
-                        "Ez nem ugyanaz, mint az ApkForge-listából való eltávolítás."
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        confirmDelete = false
-                        vm.deleteRepository(p)
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Végleges törlés")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDelete = false }) {
-                    Text("Mégsem")
-                }
-            }
-        )
     }
 }
 
@@ -368,7 +263,6 @@ private fun StatusBlock(ui: BuildUi) {
         Phase.Failed -> Icons.Default.Error to MaterialTheme.colorScheme.error
         else -> Icons.Default.Sync to MaterialTheme.colorScheme.tertiary
     }
-
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
@@ -377,12 +271,7 @@ private fun StatusBlock(ui: BuildUi) {
             Icon(icon, null, Modifier.size(20.dp), tint = tint)
             Text(ui.message, style = MaterialTheme.typography.bodyMedium)
         }
-        if (ui.active) {
-            LinearProgressIndicator(
-                Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.tertiary
-            )
-        }
+        if (ui.active) LinearProgressIndicator(Modifier.fillMaxWidth())
     }
 }
 
@@ -390,10 +279,9 @@ private fun StatusBlock(ui: BuildUi) {
 fun AddDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
     var repo by remember { mutableStateOf("") }
     var wf by remember { mutableStateOf(DEFAULT_WORKFLOW) }
-
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Meglévő GitHub repó hozzáadása") },
+        title = { Text("Repó hozzáadása") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -422,85 +310,24 @@ fun AddDialog(onDismiss: () -> Unit, onAdd: (String, String) -> Unit) {
 }
 
 @Composable
-fun CreateRepositoryDialog(
-    onDismiss: () -> Unit,
-    onCreate: (String, String, Boolean) -> Unit
-) {
-    var name by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var private by remember { mutableStateOf(false) }
-
+fun LoginDialog(onDismiss: () -> Unit, onLogin: () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("🆕 Új GitHub repó létrehozása") },
+        title = { Text("GitHub bejelentkezés") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(
-                    name,
-                    { name = it },
-                    label = { Text("Repó neve") },
-                    singleLine = true
-                )
-                OutlinedTextField(
-                    description,
-                    { description = it },
-                    label = { Text("Leírás") },
-                    minLines = 2,
-                    maxLines = 4
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(checked = private, onCheckedChange = { private = it })
-                    Text("Privát GitHub repó")
-                }
-                Text(
-                    "A repó automatikusan kap egy kezdő README-t és az APK Forge build workflow-t.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
+            Text(
+                "Az APK Forge nem kér Personal Access Tokent. " +
+                    "A GitHub saját bejelentkezési oldalán engedélyezed az alkalmazást, " +
+                    "az alkalmazás pedig rövid életű felhasználói hozzáférést és frissítő tokent kap. " +
+                    "A hitelesítő adatok titkosítva, az Android Keystore segítségével kerülnek tárolásra."
+            )
         },
         confirmButton = {
-            Button(
-                onClick = { onCreate(name, description, private) },
-                enabled = name.isNotBlank()
-            ) { Text("Létrehozás") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Mégsem") }
-        }
-    )
-}
-
-@Composable
-fun TokenDialog(current: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
-    var t by remember { mutableStateOf(current) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("GitHub token") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    "Az APK Forge a GitHub REST API-t használja. " +
-                        "Fine-grained tokennél a Repository access legyen a szükséges repóra állítva, " +
-                        "és kell Contents: Read and write, Workflows: Read and write, " +
-                        "valamint Administration: Read and write az új repó létrehozásához és törléséhez.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                OutlinedTextField(
-                    t,
-                    { t = it },
-                    label = { Text("Token") },
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                )
+            Button(onClick = onLogin) {
+                Icon(Icons.Default.Login, null)
+                Spacer(Modifier.width(8.dp))
+                Text("GitHub bejelentkezés")
             }
-        },
-        confirmButton = {
-            TextButton(onClick = { onSave(t) }) { Text("Mentés") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Mégse") } },
     )

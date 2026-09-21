@@ -9,8 +9,8 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import java.io.File
 
 enum class Phase { Idle, Dispatching, Queued, Running, Downloading, Done, Failed }
@@ -22,30 +22,60 @@ data class BuildUi(
     val apk: File? = null,
 ) {
     val active get() = phase in listOf(
-        Phase.Dispatching, Phase.Queued, Phase.Running, Phase.Downloading
+        Phase.Dispatching,
+        Phase.Queued,
+        Phase.Running,
+        Phase.Downloading
     )
 }
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val store = Store(app)
+    private val secure = SecureStore(app)
+    val auth = GitHubAuth(app, secure)
     private val jobs = mutableMapOf<String, Job>()
 
-    var token by mutableStateOf(store.token)
+    var loggedInAs by mutableStateOf(secure.login)
         private set
 
-    val projects = mutableStateListOf<Project>().apply {
-        addAll(store.loadProjects())
-    }
-
+    val projects = mutableStateListOf<Project>().apply { addAll(store.loadProjects()) }
     val states = mutableStateMapOf<String, BuildUi>()
     var message by mutableStateOf<String?>(null)
 
-    private fun gh() = GitHub(token, getApplication<Application>().cacheDir)
+    private fun gh() = GitHub(auth, getApplication<Application>().cacheDir)
     private fun set(p: Project, ui: BuildUi) { states[p.id] = ui }
 
-    fun saveToken(t: String) {
-        token = t.trim()
-        store.token = token
+    fun login() {
+        if (!auth.isConfigured()) {
+            message = "A GitHub App Client ID még nincs beállítva az APK Forge buildjében."
+            return
+        }
+
+        viewModelScope.launch {
+            val code = auth.requestDeviceCode().getOrElse {
+                message = it.message ?: "Nem sikerült elindítani a GitHub bejelentkezést."
+                return@launch
+            }
+
+            message =
+                "GitHub-kód: ${code.userCode}. A megnyitott GitHub oldalon hagyd jóvá a hozzáférést."
+            auth.openVerificationPage()
+
+            auth.completeLogin(code)
+                .onSuccess {
+                    loggedInAs = it
+                    message = "Sikeres GitHub-bejelentkezés: @$it"
+                }
+                .onFailure {
+                    message = it.message ?: "A GitHub-bejelentkezés sikertelen."
+                }
+        }
+    }
+
+    fun logout() {
+        auth.clear()
+        loggedInAs = ""
+        message = "GitHub kijelentkezve."
     }
 
     fun addProject(input: String, workflow: String) {
@@ -58,16 +88,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             .split("/")
 
         if (parts.size < 2 || parts[0].isBlank() || parts[1].isBlank()) {
-            message = "Add meg így: tulajdonos/repó"
+            message = "Add meg így: tulajdonos/repo"
             return
         }
-        if (token.isBlank()) {
-            message = "Előbb add meg a GitHub tokent."
+        if (loggedInAs.isBlank()) {
+            message = "Előbb jelentkezz be GitHubba."
             return
         }
 
-        val owner = parts[0]
-        val repo = parts[1]
+        val (owner, repo) = parts
         if (projects.any { it.id.equals("$owner/$repo", true) }) {
             message = "Ez a repó már a listán van."
             return
@@ -76,46 +105,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             gh().defaultBranch(owner, repo)
                 .onSuccess { branch ->
-                    projects.add(Project(owner, repo, branch, workflow.ifBlank { DEFAULT_WORKFLOW }))
+                    projects.add(
+                        Project(
+                            owner,
+                            repo,
+                            branch,
+                            workflow.ifBlank { DEFAULT_WORKFLOW }
+                        )
+                    )
                     store.saveProjects(projects)
-                    message = "Repó hozzáadva: $owner/$repo"
-                }
-                .onFailure { message = it.message }
-        }
-    }
-
-    fun createRepository(name: String, description: String, private: Boolean) {
-        if (token.isBlank()) {
-            message = "Előbb add meg a GitHub tokent."
-            return
-        }
-
-        val cleanName = name.trim()
-        if (!cleanName.matches(Regex("[A-Za-z0-9._-]{1,100}"))) {
-            message = "A repónév csak betűt, számot, pontot, kötőjelet és aláhúzást tartalmazhat."
-            return
-        }
-
-        if (projects.any { it.repo.equals(cleanName, true) }) {
-            message = "Ez a repó már szerepel az ApkForge listáján."
-            return
-        }
-
-        viewModelScope.launch {
-            message = "GitHub repó létrehozása…"
-            gh().createRepository(cleanName, description.trim(), private)
-                .onSuccess { p ->
-                    projects.add(p)
-                    store.saveProjects(projects)
-                    message = "Repó létrejött: ${p.id}. Workflow telepítése…"
-
-                    gh().createWorkflow(p)
-                        .onSuccess {
-                            message = "Kész: ${p.id}. Az APK build workflow is létrejött."
-                        }
-                        .onFailure {
-                            message = "A repó létrejött, de a workflow telepítése sikertelen: ${it.message}"
-                        }
                 }
                 .onFailure { message = it.message }
         }
@@ -126,34 +124,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         states.remove(p.id)
         projects.remove(p)
         store.saveProjects(projects)
-        message = "${p.id} eltávolítva az ApkForge listájából."
-    }
-
-    fun deleteRepository(p: Project) {
-        if (token.isBlank()) {
-            message = "Előbb add meg a GitHub tokent."
-            return
-        }
-
-        jobs.remove(p.id)?.cancel()
-        viewModelScope.launch {
-            message = "GitHub repó törlése…"
-            gh().deleteRepository(p.owner, p.repo)
-                .onSuccess {
-                    states.remove(p.id)
-                    projects.remove(p)
-                    store.saveProjects(projects)
-                    message = "GitHub repó törölve: ${p.id}"
-                }
-                .onFailure { message = it.message }
-        }
     }
 
     fun createWorkflow(p: Project) {
+        if (loggedInAs.isBlank()) {
+            message = "Előbb jelentkezz be GitHubba."
+            return
+        }
+
         viewModelScope.launch {
-            message = "Workflow létrehozása…"
             gh().createWorkflow(p)
-                .onSuccess { message = "A ${p.workflow} létrejött a(z) ${p.id} repóban." }
+                .onSuccess {
+                    message = "A ${p.workflow} létrejött a(z) ${p.id} repóban."
+                }
                 .onFailure { message = it.message }
         }
     }
@@ -164,19 +147,25 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun build(p: Project) {
-        if (token.isBlank()) {
-            message = "Előbb add meg a GitHub tokent."
+        if (loggedInAs.isBlank()) {
+            message = "Előbb jelentkezz be GitHubba."
             return
         }
 
         jobs[p.id]?.cancel()
         jobs[p.id] = viewModelScope.launch {
             val g = gh()
-            set(p, BuildUi(Phase.Dispatching, "GitHub Actions build indítása…"))
+            set(p, BuildUi(Phase.Dispatching, "Build indítása…"))
 
             val prevId = g.latestRun(p).getOrNull()?.id
             g.dispatch(p).onFailure {
-                set(p, BuildUi(Phase.Failed, it.message ?: "Nem sikerült elindítani."))
+                set(
+                    p,
+                    BuildUi(
+                        Phase.Failed,
+                        it.message ?: "Nem sikerült elindítani."
+                    )
+                )
                 return@launch
             }
 
@@ -209,9 +198,23 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     when (r.status) {
                         "completed" -> break
                         "in_progress" ->
-                            set(p, BuildUi(Phase.Running, "GitHub Actions: fordítás folyamatban…", r.url))
+                            set(
+                                p,
+                                BuildUi(
+                                    Phase.Running,
+                                    "Fordítás folyamatban…",
+                                    r.url
+                                )
+                            )
                         else ->
-                            set(p, BuildUi(Phase.Queued, "GitHub Actions: sorban áll…", r.url))
+                            set(
+                                p,
+                                BuildUi(
+                                    Phase.Queued,
+                                    "Sorban áll…",
+                                    r.url
+                                )
+                            )
                     }
                 }
                 delay(5000)
@@ -222,20 +225,43 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     p,
                     BuildUi(
                         Phase.Failed,
-                        "A build sikertelen (${current.conclusion}). Nyisd meg a naplót.",
+                        "A build sikertelen (${current.conclusion}). Nézd meg a naplót.",
                         current.url
                     )
                 )
                 return@launch
             }
 
-            set(p, BuildUi(Phase.Downloading, "APK artifact letöltése…", current.url))
+            set(
+                p,
+                BuildUi(
+                    Phase.Downloading,
+                    "APK letöltése…",
+                    current.url
+                )
+            )
+
             g.downloadApk(p, current.id)
                 .onSuccess {
-                    set(p, BuildUi(Phase.Done, "APK elkészült: ${it.name}", current.url, it))
+                    set(
+                        p,
+                        BuildUi(
+                            Phase.Done,
+                            "Kész: ${it.name}",
+                            current.url,
+                            it
+                        )
+                    )
                 }
                 .onFailure {
-                    set(p, BuildUi(Phase.Failed, it.message ?: "Letöltési hiba", current.url))
+                    set(
+                        p,
+                        BuildUi(
+                            Phase.Failed,
+                            it.message ?: "Letöltési hiba",
+                            current.url
+                        )
+                    )
                 }
         }
     }

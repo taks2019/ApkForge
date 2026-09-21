@@ -7,20 +7,31 @@ plugins {
 android {
     namespace = "hu.apkforge"
     compileSdk = 34
+
     defaultConfig {
         applicationId = "hu.apkforge"
         minSdk = 26
         targetSdk = 34
         versionCode = 2
         versionName = "2.0"
+        // GitHub App client IDs are not secrets and may be embedded in a native app.
+        // Replace this placeholder with the Client ID of the GitHub App you register
+        // for APK Forge before publishing/building the final APK.
+        buildConfigField("String", "GITHUB_CLIENT_ID", "\"\"")
     }
+
     buildTypes { release { isMinifyEnabled = false } }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
+
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
 }
 
 dependencies {
