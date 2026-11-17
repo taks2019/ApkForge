@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "type": "TAKS game decoder definitions",
+  "decoders": [
+    {"name": "GZIP text resources", "suffixes": [".gz", ".gzip", ".bytes", ".dat"], "magic": "1f8b", "compression": "gzip", "charset": "UTF-8"},
+    {"name": "Zlib text resources", "suffixes": [".zlib", ".dat", ".bytes", ".bin"], "magic": "789c", "compression": "zlib", "charset": "UTF-8"},
+    {"name": "Zlib text resources (fast)", "suffixes": [".zlib", ".dat", ".bytes", ".bin"], "magic": "7801", "compression": "zlib", "charset": "UTF-8"},
+    {"name": "Zlib text resources (best)", "suffixes": [".zlib", ".dat", ".bytes", ".bin"], "magic": "78da", "compression": "zlib", "charset": "UTF-8"}
+  ]
+}
